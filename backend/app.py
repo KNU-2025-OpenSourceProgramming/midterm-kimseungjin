@@ -13,7 +13,7 @@ app = Flask(__name__,
     static_folder='./www',
     static_url_path='/'
 )
-CORS(
+CORS(app)
 sock = Sock(app)
 model = whisper.load_model("base")
 
