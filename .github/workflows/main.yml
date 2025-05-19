@@ -1,0 +1,100 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  PYTHON_VERSION: '3.9'
+  NODE_VERSION: '16'
+
+jobs:
+  setup-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          cd backend
+          # 특정 버전의 Flask와 Werkzeug 설치
+          pip install flask==2.0.1 werkzeug==2.0.1
+          pip install -r requirements.txt
+
+      - name: Install Frontend dependencies
+        run: |
+          cd frontend
+          npm install
+
+      - name: Build Frontend
+        run: |
+          cd frontend
+          npm run build
+          mkdir -p ../backend/www
+          cp -r build/* ../backend/www/
+
+      - name: Set up ngrok
+        run: |
+          wget https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip
+          unzip ngrok-v3-stable-linux-amd64.zip
+          chmod +x ngrok
+          sudo mv ngrok /usr/local/bin
+          ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+
+      - name: Start Flask server & ngrok
+        run: |
+          cd backend
+          python app.py &
+          sleep 5
+          ngrok http 3000 --log=stdout > ngrok.log &
+          sleep 5
+          public_url=$(grep -o 'https://.*\.ngrok-free\.app' ngrok.log | head -n 1)
+          echo "Server available at: $public_url"
+          echo "PUBLIC_URL=$public_url" >> $GITHUB_ENV
+
+      - name: Setup SSH access
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openssh-server
+          sudo service ssh start
+          
+          # SSH 구성 파일 수정
+          sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+          sudo service ssh restart
+          
+          # root 비밀번호 설정 (더 안전한 방법)
+          echo "root:runner2025" | sudo chpasswd
+          
+          # ngrok으로 SSH 터널 생성
+          ngrok tcp 22 &
+          sleep 5
+          
+          # SSH URL 가져오기
+          ssh_url=$(curl -s http://localhost:4040/api/tunnels | grep -o '"public_url":"tcp://[^"]*' | grep -o 'tcp://[^"]*')
+          echo "SSH access available at: $ssh_url"
+          echo "SSH_URL=$ssh_url" >> $GITHUB_ENV
+          echo "SSH username: root"
+          echo "SSH password: runner2025"
+
+      - name: Wait for manual testing
+        run: |
+          echo "Application is running at ${{ env.PUBLIC_URL }}"
+          echo "SSH access is available at ${{ env.SSH_URL }}"
+          echo "SSH username: root"
+          echo "SSH password: runner2025"
+          echo "The server will be available for testing for 5 minutes"
+          sleep 300
