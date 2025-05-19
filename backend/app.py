@@ -13,7 +13,7 @@ app = Flask(__name__,
     static_folder='./www',
     static_url_path='/'
 )
-CORS(
+CORS(app)
 sock = Sock(app)
 model = whisper.load_model("base")
 
@@ -42,6 +42,8 @@ def handle_audio(ws):
         except Exception as e:
             print(f'Error: {e}')
             ws.send('Error processing audio')
+
+            #hi
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=3000, debug=True)
